@@ -1,6 +1,42 @@
 import { RequestHandlerParams, ROOT_OBJECT } from "./utils";
 
-// ... (handleRequestPutMultipart remains the same)
+import { RequestHandlerParams } from "./utils";
+
+export async function handleRequestPutMultipart({
+    bucket,
+    path,
+    request,
+}: RequestHandlerParams) {
+    const url = new URL(request.url);
+
+    const uploadId = new URLSearchParams(url.search).get("uploadId");
+    const partNumberStr = new URLSearchParams(url.search).get("partNumber");
+    if (!uploadId || !partNumberStr || !request.body)
+        return new Response("Bad Request", { status: 400 });
+
+    const multipartUpload = bucket.resumeMultipartUpload(path, uploadId);
+
+    const partNumber = parseInt(partNumberStr);
+    const uploadedPart = await multipartUpload.uploadPart(
+        partNumber,
+        request.body
+    );
+
+    const complete = request.headers.get("fd-complete"); // Check for "complete" header
+
+    if (complete === "true") {  // If this is the final part
+        try {
+            await METADATA_KV.put(path, new Date().toUTCString()); // Update Last-Modified
+        } catch (error) {
+            console.error("Error updating Last-Modified in KV:", error);
+            return new Response("Error updating Last-Modified", { status: 500 });
+        }
+    }
+
+    return new Response(null, {
+        headers: { "Content-Type": "application/json", etag: uploadedPart.etag },
+    });
+}
 
 export async function handleRequestPut({
     bucket,
